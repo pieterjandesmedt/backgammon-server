@@ -177,7 +177,7 @@ app.use((err, req, res, next) => {
 
 // IMPORTANT: Your application HAS to respond to GET /health with status 200
 //            for OpenShift health monitoring
-app.get('/health', function (req, res) {
+app.get('/health', function(req, res) {
 	res.status(200).send();
 });
 
@@ -189,8 +189,6 @@ if (process.env.NODE_ENV === 'development') {
 // app.use(require('./anonymous-routes'));
 // app.use(require('./protected-routes'));
 
-const port = process.env.PORT || 3001;
-
 const server = http.createServer(app);
 const io = require('socket.io').listen(server, {
 	pingInterval: 5000,
@@ -201,18 +199,22 @@ const io = require('socket.io').listen(server, {
 const waitingUsers = [];
 let gamesInProgress = [];
 
-server.listen(port, (err) => {
+var serverPort = process.env.OPENSHIFT_NODEJS_PORT || 3001;
+var serverIpAddress = process.env.OPENSHIFT_NODEJS_IP || '127.0.0.1';
+
+server.listen(serverPort, serverIpAddress, function(err) {
 	if (err) {
 		console.error(err);
 	} else {
-		console.log('listening in http://localhost:' + port);
+		console.log('Listening on ' + serverIpAddress + ', port ' + serverPort);
 	}
 });
 
+
 process.on('SIGTERM', () => {
 	console.log('SIGTERM received');
-	fs.writeFileSync('gamesInProgress.json', JSON.stringify(gamesInProgress));
-	console.log('gamesInProgress.json saved');
+	// fs.writeFileSync('gamesInProgress.json', JSON.stringify(gamesInProgress));
+	// console.log('gamesInProgress.json saved');
 	server.close(() => {
 		process.exit(0);
 	});
