@@ -175,6 +175,12 @@ app.use((err, req, res, next) => {
 	}
 });
 
+// IMPORTANT: Your application HAS to respond to GET /health with status 200
+//            for OpenShift health monitoring
+app.get('/health', function (req, res) {
+	res.status(200).send();
+});
+
 if (process.env.NODE_ENV === 'development') {
 	app.use(logger('dev'));
 	app.use(errorhandler());
