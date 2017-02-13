@@ -12,11 +12,9 @@
     "url": "git@bitbucket.org:digitalcomet/libackgammon-server.git"
   },
   "keywords": [
-    "todo",
-    "in",
-    "memory",
-    "jwt",
-    "auth0"
+    "backgammon",
+    "websockets",
+    "server"
   ],
   "author": "Pieter Jan De Smedt",
   "license": "MIT",
