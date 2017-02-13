@@ -1,0 +1,52 @@
+{
+    "extends": "airbnb/legacy",
+    "rules": {
+        // Override any settings from the "parent" configuration
+        "comma-dangle": [2, "only-multiline"],
+        "comma-spacing": 1,
+        "consistent-return": 0,
+        "eqeqeq": 1,
+        "func-names": 0,
+        "global-require": 0,
+        "import/no-unresolved": 0,
+        "indent": [1, "tab", {"SwitchCase": 1}],
+        "max-len": ["error", {"code": 180, "tabWidth": 4, "ignoreUrls": true, "ignoreComments": true}],
+        "new-cap": ["error", {"capIsNewExceptions": ["db.Types.ObjectId", "types.ObjectId", "express.Router"]}],
+        "no-alert": 0,
+        "no-bitwise": 0,
+        "no-console": 0,
+        "no-mixed-operators": 0,
+        "no-param-reassign": 0,
+        "no-plusplus": 0,
+        "no-tabs": 0,
+        "no-underscore-dangle": ["error", { "allow": ["_id", "__v", "__t"] }],
+        "no-unused-vars": 1,
+        "no-use-before-define": [2, {"functions": false, "classes": true}],
+        "one-var": 0,
+        "padded-blocks": 1,
+        "semi": 1,
+        "space-in-parens": 0,
+        "spaced-comment": [1, "always", { "exceptions": ["-", "+"], "markers": ["/"] }],
+        "vars-on-top": 0
+    },
+    "env": {
+        "browser": true,
+        "node": true
+    },
+    "globals": {
+        "angular": true,
+        "google": true,
+        "L": true,
+        "moment": true,
+        "saveAs": true,
+        "api": true,
+        "db": true,
+        "token": true
+    },
+    "parser": "babel-eslint",
+    "parserOptions": {
+        "ecmaFeatures": {
+            "modules": true
+        }
+    }
+}
