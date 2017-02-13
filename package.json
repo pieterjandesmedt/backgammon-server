@@ -1,7 +1,7 @@
 {
-  "name": "in-memory-todo",
+  "name": "libackgammon-server",
   "version": "0.1.0",
-  "description": "An In memory todo for Logged in and not Logged in users",
+  "description": "Websockets server for ilbackgammon",
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/auth0/in-memory-todo.git"
+    "url": "git@bitbucket.org:digitalcomet/libackgammon-server.git"
   },
   "keywords": [
     "todo",
@@ -18,12 +18,12 @@
     "jwt",
     "auth0"
   ],
-  "author": "Martin Gontovnikas",
+  "author": "Pieter Jan De Smedt",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/auth0/in-memory-todo/issues"
+    "url": "https://bitbucket.org/digitalcomet/libackgammon-server/issues"
   },
-  "homepage": "https://github.com/auth0/in-memory-todo",
+  "homepage": "https://libackgammon.org",
   "dependencies": {
     "bcrypt": "^1.0.2",
     "body-parser": "^1.6.5",
