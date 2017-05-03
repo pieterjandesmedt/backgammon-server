@@ -31,6 +31,8 @@ const connectionString = process.env.OPENSHIFT_MONGODB_DB_URL ?
 	process.env.OPENSHIFT_MONGODB_DB_URL :
 	'localhost:27017/libackgammon';
 
+const dns = process.env.OPENSHIFT_GEAR_DNS ? 'https://' + process.env.OPENSHIFT_GEAR_DNS : 'http://localhost:3001'
+
 mongoose.Promise = require('q').Promise;
 
 const db = mongoose.connect(connectionString).connection;
@@ -249,7 +251,7 @@ app.get('/login/facebook/return', function (req, res) {
 	console.log('code', req.query.code);
 	const params = [
 		'client_id=' + config.facebook.appId,
-		'redirect_uri=http://localhost:3001/login/facebook/return',
+		'redirect_uri=' + dns + '/login/facebook/return',
 		'client_secret=' + config.facebook.appSecret,
 		'code=' + req.query.code,
 	];
@@ -312,8 +314,8 @@ if (process.env.NODE_ENV === 'development') {
 const waitingUsers = [];
 let gamesInProgress = [];
 
-var serverPort = process.env.OPENSHIFT_NODEJS_PORT || 3001;
-var serverIpAddress = process.env.OPENSHIFT_NODEJS_IP || '127.0.0.1';
+const serverPort = process.env.OPENSHIFT_NODEJS_PORT || 3001;
+const serverIpAddress = process.env.OPENSHIFT_NODEJS_IP || '127.0.0.1';
 
 server.listen(serverPort, serverIpAddress, function (err) {
 	if (err) {
