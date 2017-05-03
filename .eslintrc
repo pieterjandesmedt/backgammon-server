@@ -11,7 +11,7 @@
         "import/no-unresolved": 0,
         "indent": [1, "tab", {"SwitchCase": 1}],
         "max-len": ["error", {"code": 180, "tabWidth": 4, "ignoreUrls": true, "ignoreComments": true}],
-        "new-cap": ["error", {"capIsNewExceptions": ["db.Types.ObjectId", "types.ObjectId", "express.Router"]}],
+        "new-cap": ["error", {"capIsNewExceptions": ["mongoose.Schema","db.Types.ObjectId", "types.ObjectId", "express.Router"]}],
         "no-alert": 0,
         "no-bitwise": 0,
         "no-console": 0,

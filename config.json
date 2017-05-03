@@ -1,3 +1,7 @@
 {
-  "secret": "ngEurope rocks!"
+  "secret": "ngEurope rocks!",
+  "facebook": {
+  	"appId": "1882964128656047",
+  	"appSecret": "5a702c7a5ff72c2587d6db7a14d6967c"
+  }
 }
