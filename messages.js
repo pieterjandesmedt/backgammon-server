@@ -1,0 +1,18 @@
+module.exports = {
+	ALREADY_EXISTS: 'A user with that username already exists.',
+	DISCONNECTED: 'I\'m disconnected. If I can\'t reconnect, you win.',
+	DONT_MATCH: 'Username and password don\'t match.',
+	DOUBLE: 'Let\'s double the bet',
+	ENTER_USERNAME_PASSWORD: 'You must enter your username and password.',
+	GOT_TO_LEAVE: 'I\'ve got to leave',
+	LETS_PLAY_AGAIN: 'Let\'s play again',
+	LOG_IN_AGAIN: 'It\'s been a while since we saw you... please log in again.',
+	LOGGED_IN_ELSEWHERE: 'You logged in on another device.',
+	NO_USERNAME: 'The token didn\'t contain a username.',
+	NOT_ENOUGH_COINS: 'At least one player doesn\'t have enough coins.',
+	NOT_ENOUGH_COINS_FOR_ME: 'I don\'t have enough coins.',
+	RAN_OUT_OF_TIME: 'I ran out of time',
+	REDOUBLE: 'Let\'s redouble that again',
+	RESIGN: 'I resign',
+	UNVERIFIED_TOKEN: 'That token could not be verified',
+};

@@ -5,18 +5,19 @@ const http = require('http');
 const express = require('express');
 const request = require('request');
 const errorhandler = require('errorhandler');
-const dotenv = require('dotenv');
+
 const bodyParser = require('body-parser');
 const cuid = require('cuid');
-const fs = require('fs');
 const MersenneTwister = require('mersenne-twister');
-const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const q = require('q');
-const bcrypt = require('bcryptjs');
+const base64 = require('base64url');
+const crypto = require('crypto');
 
+const auth = require('./auth');
 const config = require('./config');
 const rules = require('./rules');
+const messages = require('./messages');
 
 const tip = 0.05;
 
@@ -31,8 +32,6 @@ const connectionString = process.env.OPENSHIFT_MONGODB_DB_URL ?
 	process.env.OPENSHIFT_MONGODB_DB_URL :
 	'localhost:27017/libackgammon';
 
-const dns = process.env.OPENSHIFT_GEAR_DNS ? 'https://libackgammon.org/api/' : 'http://localhost:3001';
-
 mongoose.Promise = require('q').Promise;
 
 const db = mongoose.connect(connectionString).connection;
@@ -42,170 +41,14 @@ db.once('open', function () {
 	console.log('connected to mongodb');
 });
 
-const messages = {
-	DISCONNECTED: 'I\'m disconnected. If I can\'t reconnect, you win.',
-	ENTER_USERNAME_PASSWORD: 'You must enter your username and password.',
-	ALREADY_EXISTS: 'A user with that username already exists.',
-	DONT_MATCH: 'Username and password don\'t match.',
-	NO_USERNAME: 'The token didn\'t contain a username.',
-	LOG_IN_AGAIN: 'It\'s been a while since we saw you... please log in again.',
-	UNVERIFIED_TOKEN: 'That token could not be verified',
-	RAN_OUT_OF_TIME: 'I ran out of time',
-	LETS_PLAY_AGAIN: 'Let\'s play again',
-	GOT_TO_LEAVE: 'I\'ve got to leave',
-	RESIGN: 'I resign',
-	DOUBLE: 'Let\'s double the bet',
-	REDOUBLE: 'Let\'s redouble that again',
-};
 
 const users = mongoose.model('users', require('./user.model.js'));
 const games = mongoose.model('games', require('./game.model.js'));
 
-function createToken(user) {
-	return jwt.sign(_.pick(user, ['id', 'username']), config.secret, {
-		expiresIn: '7 days'
-	});
-}
-
-function signup(credentials) {
-	const deferred = q.defer();
-
-	if ((!credentials.username || !credentials.password) && !credentials.facebookId) {
-		deferred.reject({
-			error: messages.ENTER_USERNAME_PASSWORD
-		});
-	}
-
-	let userPromise;
-
-	if (credentials.facebookId) {
-		userPromise = users
-			.findOne({
-				'social.facebookId': credentials.facebookId
-			});
-	} else {
-		userPromise = users
-			.findOne({
-				username: credentials.username
-			});
-	}
-
-	userPromise.then((result) => {
-		console.log('result', result);
-		if (!result) {
-			// The username doesn't exist yet
-			bcrypt
-				.hash(credentials.password, 10)
-				.then(function (hash) {
-					const user = Object.assign({}, {
-						username: credentials.username,
-						password: hash,
-						picture: credentials.picture || '',
-						money: 0,
-						elo: [1500],
-						xp: 0,
-					});
-					if (credentials.facebookId) {
-						user.social = {
-							facebookId: credentials.facebookId,
-						};
-					}
-					users
-						.create(user)
-						.then(function (createdUser) {
-							deferred.resolve(userWithToken(createdUser));
-						}, deferred.reject);
-				}, deferred.reject);
-		} else {
-			// The username exists
-			deferred.reject({
-				error: messages.ALREADY_EXISTS
-			});
-		}
-	}, deferred.reject);
-
-	return deferred.promise;
-}
+const userSockets = {};
 
 function safeUser(user) {
 	return _.pick(JSON.parse(JSON.stringify(user)), ['id', 'username', 'picture', 'money', 'xp', 'elo', 'id_token']);
-}
-
-function userWithToken(user) {
-	const safe = safeUser(user);
-	return Object.assign({
-		id_token: createToken(safe)
-	}, safe);
-}
-
-
-function login(credentials) {
-	const deferred = q.defer();
-
-	function findAndSend(search, creds) {
-		users
-			.findOne(search)
-			.then((user) => {
-				if (!user) {
-					// The username doesn't exist
-					deferred.reject({
-						error: messages.DONT_MATCH
-					});
-				} else if (creds) {
-					// The username exists, and creds need checking
-					bcrypt
-						.compare(creds.password, user.password)
-						.then((compareRes) => {
-							if (compareRes) {
-								deferred.resolve(userWithToken(user));
-							} else {
-								deferred.reject({
-									error: messages.DONT_MATCH
-								});
-							}
-						})
-						.catch(deferred.reject);
-				} else {
-					// The username exists and we trust all tokens
-					// TODO: investigate if this is such a good idea
-					deferred.resolve(userWithToken(user));
-				}
-			}, deferred.reject);
-	}
-
-	if (credentials.token) {
-		try {
-			const decoded = jwt.verify(credentials.token, config.secret);
-			if (!decoded.username) {
-				deferred.reject({
-					error: messages.NO_USERNAME
-				});
-			} else {
-				findAndSend({
-					username: decoded.username
-				});
-			}
-		} catch (err) {
-			console.error('error decoding token', err);
-			deferred.reject({
-				error: messages.LOG_IN_AGAIN,
-				err,
-			});
-		}
-	} else if (credentials.facebookId) {
-		findAndSend({
-			'social.facebookId': credentials.facebookId,
-		});
-	} else if (!credentials.username || !credentials.password) {
-		deferred.reject({
-			error: messages.ENTER_USERNAME_PASSWORD
-		});
-	} else {
-		findAndSend({
-			username: credentials.username,
-		}, credentials);
-	}
-	return deferred.promise;
 }
 
 const generator = new MersenneTwister();
@@ -215,9 +58,6 @@ const io = require('socket.io').listen(server, {
 	pingInterval: 5000,
 	pingTimeout: 10000
 });
-
-
-dotenv.load();
 
 // Parsers
 // old version of line
@@ -243,73 +83,10 @@ app.get('/health', function (req, res) {
 	res.status(200).send();
 });
 
-app.get('/login/facebook/return', function (req, res) {
-	const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-	const state = req.query.state;
-	console.log('ip', ip);
-	console.log('state', state);
-	console.log('code', req.query.code);
-	const params = [
-		'client_id=' + config.facebook.appId,
-		'redirect_uri=' + dns + '/login/facebook/return',
-		'client_secret=' + config.facebook.appSecret,
-		'code=' + req.query.code,
-	];
-	request('https://graph.facebook.com/v2.8/oauth/access_token?' + params.join('&'), function (error, response, body) {
-		if (!error) {
-			const bod = JSON.parse(body);
-			var options = {
-				url: 'https://graph.facebook.com/me?fields=id,first_name,last_name,picture.width(512),email,locale,location&width=512&height=512',
-				headers: {
-					authorization: ['Bearer', bod.access_token].join(' ')
-				}
-			};
-			request(options, function (meError, meResponse, meBody) {
-				const meBod = JSON.parse(meBody);
-				console.log('meBody', meBody);
-				users
-					.findOne({
-						'social.facebookId': meBod.id
-					})
-					.then((user) => {
-						if (!user) {
-							// Create new user
-							signup({
-								username: meBod.first_name,
-								facebookId: meBod.id,
-								picture: meBod.picture.data.url,
-								password: '' + generator.random(),
-							}).then((yup) => {
-								io.in(state).emit('setUser', yup);
-								res.send('<script>window.close();</script>');
-							}, (nope) => {
-								res.status(501).send(nope);
-							});
-						} else {
-							// User exists
-							login({
-								facebookId: user.social.facebookId
-							}).then((yup) => {
-								io.in(state).emit('setUser', yup);
-								res.send('<script>window.close();</script>');
-							}, (nope) => {
-								res.status(501).send(nope);
-							});
-						}
-					});
-			});
-		}
-	});
-});
-
 if (process.env.NODE_ENV === 'development') {
 	app.use(logger('dev'));
 	app.use(errorhandler());
 }
-
-// app.use(require('./anonymous-routes'));
-// app.use(require('./protected-routes'));
-
 
 const waitingUsers = [];
 let gamesInProgress = [];
@@ -328,8 +105,6 @@ server.listen(serverPort, serverIpAddress, function (err) {
 
 process.on('SIGTERM', () => {
 	console.log('SIGTERM received');
-	// fs.writeFileSync('gamesInProgress.json', JSON.stringify(gamesInProgress));
-	// console.log('gamesInProgress.json saved');
 	server.close(() => {
 		process.exit(0);
 	});
@@ -337,8 +112,18 @@ process.on('SIGTERM', () => {
 
 const boards = require('./boards.js');
 
-if (fs.existsSync('gamesInProgress.json')) {
-	gamesInProgress = JSON.parse(fs.readFileSync('gamesInProgress.json'));
+function sendUserDataDisconnectIfNecessary(socket) {
+	return function (userData) {
+		socket.emit('setUser', safeUser(userData));
+		const oldSocket = userSockets[userData.id];
+		userSockets[userData.id] = socket.id;
+		if (oldSocket && oldSocket !== socket.id) {
+			console.log('sending disconnect to', oldSocket);
+			io.in(oldSocket).emit('removeUser', {
+				error: messages.LOGGED_IN_ELSEWHERE
+			});
+		}
+	};
 }
 
 io.on('connection', (socket) => {
@@ -348,58 +133,91 @@ io.on('connection', (socket) => {
 		};
 	}
 
+	socket.emit('requestUserId');
+
 	console.log('connection made', socket.id);
 	console.log('%d games in progress', gamesInProgress.length);
 	console.log('%d players connected', io.engine.clientsCount);
+
 	io.emit('serverStats', {
 		connectedPlayers: io.engine.clientsCount,
 	});
 
-	socket.on('ping', () => {
-		console.log('RECEIVED ping from %s', socket.id);
-	});
-	socket.on('pong', () => {
-		console.log('RECEIVED pong from %s', socket.id);
+	socket.on('replyUserId', (id) => {
+		console.log('RECEIVED replyUserId %s from %s', id, socket.id);
+		if (id) {
+			users
+				.findOne({ _id: id })
+				.then(sendUserDataDisconnectIfNecessary(socket));
+		}
 	});
 
+	socket.on('logout', (id) => {
+		console.log('RECEIVED logout from %s', socket.id);
+		console.log('userSockets is first ', userSockets);
+		if (userSockets[id]) delete userSockets[id];
+		console.log('userSockets is now ', userSockets);
+	});
 	socket.on('login', (credentials) => {
 		console.log('RECEIVED login from %s', socket.id);
-		login(credentials).then(function (data) {
-			socket.emit('setUser', data);
-			checkForGamesInProgress(socket)(data.id);
+		auth.login(credentials).then(function (userData) {
+			sendUserDataDisconnectIfNecessary(socket)(userData);
+			checkForGamesInProgress(socket)(userData.id);
 		}, send('userError'));
 	});
 	socket.on('signup', (credentials) => {
 		console.log('RECEIVED signup from %s', socket.id);
-		signup(credentials).then(send('setUser'), send('userError'));
+		auth.signup(credentials).then(send('setUser'), send('userError'));
 	});
-	socket.on('facebook', () => {
+	socket.on('facebook', (data) => {
+		console.log('RECEIVED facebook from %s', socket.id);
+		const signedRequest = data.authResponse.signedRequest;
+		const decoded1 = signedRequest.split('.')[0];
+		const decoded2 = JSON.parse(base64.decode(signedRequest.split('.')[1]));
 
-	});
-
-	socket.on('getUserInfo', (token) => {
-		console.log('RECEIVED getUserInfo from %s', socket.id);
-		try {
-			const decoded = jwt.verify(token, config.secret);
-			console.log('decoded', decoded);
-			if (!decoded.id) {
-				send('removeUser')({
-					error: 'The token didn\'t contain an id'
+		const algorithm = decoded2.algorithm.toLowerCase().split('-');
+		if (algorithm[0] === 'hmac') {
+			const hmac = crypto.createHmac(algorithm[1], config.facebook.appSecret);
+			hmac.update(signedRequest.split('.')[1]);
+			const encoded = base64.fromBase64(hmac.digest('base64'));
+			if (encoded === decoded1) {
+				var options = {
+					url: 'https://graph.facebook.com/me?fields=id,first_name,last_name,picture.width(512),email,locale,location&width=512&height=512',
+					headers: {
+						authorization: ['Bearer', data.authResponse.accessToken].join(' ')
+					}
+				};
+				request(options, function (meError, meResponse, meBody) {
+					const meBod = JSON.parse(meBody);
+					users
+						.findOne({
+							'social.facebookId': meBod.id
+						})
+						.then((user) => {
+							if (!user) {
+								// Create new user
+								auth.signup({
+									username: meBod.first_name,
+									facebookId: meBod.id,
+									picture: meBod.picture.data.url,
+									password: '' + generator.random(),
+								}).then(send('setUser'));
+							} else {
+								// User exists
+								auth.login({
+									facebookId: user.social.facebookId
+								}).then(sendUserDataDisconnectIfNecessary(socket));
+							}
+						});
 				});
 			} else {
-				users
-					.findOne({
-						_id: decoded.id
-					})
-					.then((user) => {
-						send('setUser')(safeUser(user));
-					}, send('removeUser'));
+				send('userError')({
+					error: 'facebook request was not signed correctly'
+				});
 			}
-		} catch (err) {
-			console.log('err', err);
-			send('removeUser')({
-				error: messages.UNVERIFIED_TOKEN,
-				err,
+		} else {
+			send('userError')({
+				error: 'unknown facebook signing algorithm'
 			});
 		}
 	});
@@ -584,7 +402,11 @@ io.on('connection', (socket) => {
 		});
 	});
 
-	socket.on('userInfo', checkForGamesInProgress(socket));
+	socket.on('userInfo', (data) => {
+		console.log('RECEIVED userInfo from %s', socket.id);
+		console.log('data', data);
+		checkForGamesInProgress(socket)(data);
+	});
 
 	socket.on('askPlayAgain', () => {
 		console.log('RECEIVED askPlayAgain from %s', socket.id);
@@ -594,23 +416,41 @@ io.on('connection', (socket) => {
 			game[color].wantsAgain = true;
 			game[color].user.message = messages.LETS_PLAY_AGAIN;
 			if (game.black.wantsAgain && game.white.wantsAgain && io.sockets.connected[game.white.socketId] && io.sockets.connected[game.black.socketId]) {
-				const gameIndex = _.findIndex(gamesInProgress, g => g.roomId === game.roomId);
-				gamesInProgress.splice(gameIndex, 1);
-				io.sockets.connected[game.white.socketId].leave(game.roomId);
-				io.sockets.connected[game.black.socketId].leave(game.roomId);
-				const newGame = {
-					board: Object.assign({}, _.find(boards, b => b.id === game.boardId)),
-					white: {
-						userId: game.white.user.id,
-						socket: io.sockets.connected[game.white.socketId],
-					},
-					black: {
-						userId: game.black.user.id,
-						socket: io.sockets.connected[game.black.socketId],
-					},
-					turn: game.won === 'black' ? 'white' : 'black',
-				};
-				createGame(newGame);
+				const currentBoard = Object.assign({}, _.find(boards, b => b.id === game.boardId));
+				findUsers(game.black.user.id, game.white.user.id).then((userResults) => {
+					if (canUserPlay(userResults[0], currentBoard) && canUserPlay(userResults[1], currentBoard)) {
+						game.archived = true;
+						if (game.white.socketId) delete game.white.socketId;
+						if (game.black.socketId) delete game.black.socketId;
+						io.sockets.connected[game.white.socketId].leave(game.roomId);
+						io.sockets.connected[game.black.socketId].leave(game.roomId);
+						const newGame = {
+							board: currentBoard,
+							white: {
+								userId: game.white.user.id,
+								socket: io.sockets.connected[game.white.socketId],
+							},
+							black: {
+								userId: game.black.user.id,
+								socket: io.sockets.connected[game.black.socketId],
+							},
+							turn: game.won === 'black' ? 'white' : 'black',
+						};
+						archiveGames(gamesInProgress.filter(g => g.archived));
+						gamesInProgress = gamesInProgress.filter(g => !g.archived);
+						console.log('%d games in progress', gamesInProgress.length);
+						createGame(newGame).then((anotherGame) => {
+							gamesInProgress.push(newGame);
+							io.in(anotherGame.roomId).emit('setGame', anotherGame);
+						}, (err) => {
+							console.error(err);
+						});
+					} else {
+						if (!canUserPlay(userResults[0], currentBoard)) game.black.user.message = messages.NOT_ENOUGH_COINS_FOR_ME;
+						if (!canUserPlay(userResults[1], currentBoard)) game.white.user.message = messages.NOT_ENOUGH_COINS_FOR_ME;
+						io.in(game.roomId).emit('setGame', game);
+					}
+				});
 			} else {
 				io.in(game.roomId).emit('setGame', game);
 			}
@@ -855,70 +695,81 @@ function checkForReadyGames() {
 						socket: io.sockets.connected[waitingUsersForBoard[1].socketId],
 					}
 				};
-				createGame(game);
-				removeUserFromWaitingList(game.white.userId);
-				removeUserFromWaitingList(game.black.userId);
+				createGame(game).then((newGame) => {
+					removeUserFromWaitingList(newGame.white.user.id);
+					removeUserFromWaitingList(newGame.black.user.id);
+					gamesInProgress.push(newGame);
+					io.in(newGame.roomId).emit('setGame', newGame);
+				}, (err) => {
+					console.error(err);
+				});
 			}
 		}
 	});
 }
 
 function createGame(data) {
+	const deferred = q.defer();
+
 	const roomId = cuid();
 	data.white.socket.join(roomId);
 	data.black.socket.join(roomId);
 	findUsers(data.white.userId, data.black.userId).then((userResults) => {
 		if (userResults[0] && userResults[1]) {
-			const game = {
-				roomId,
-				boardId: data.board.id,
-				bet: data.board.bet,
-				tip,
-				currentAmountBet: 2 * data.board.bet,
-				multiplier: 1,
-				lastDoubledBet: 'none',
-				doublers: [],
-				lastRolled: 'none',
-				turn: data.turn || (Math.round(generator.random()) === 0 ? 'white' : 'black'),
-				limit: data.board.time,
-				lastMove: Date.now(),
-				dice: [],
-				originalDice: [],
-				history: [],
-				white: {
-					user: safeUser(userResults[0]),
-					socketId: data.white.socket.id,
-					position: [0, 0, 0, 0, 0, 0, 5, 0, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0], // real game
-					// position: [0, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1], // test: black is almost won
-					// position: [0, 0, 0, 0, 0, 0, 5, 0, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2], // test: white is blocked
-					// position: [0, 0, 0, 0, 0, 0, 5, 0, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2], // test: two on the bar
-					// position: [0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // test: huge stack
-					// position: [13, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // test: end game
-				},
-				black: {
-					user: safeUser(userResults[1]),
-					socketId: data.black.socket.id,
-					position: [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 3, 0, 5, 0, 0, 0, 0, 0, 0], // real game
-					// position: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 3, 3, 2, 2, 3, 0, 0], // test: black is almost won
-					// position: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 2, 2, 2, 2, 2, 2, 0], // test: white is blocked
-					// position: [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 3, 0, 5, 0, 0, 0, 0, 0, 0], // test: two on the bar
-					// position: [0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // test: huge stack
-					// position: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 13], // test: end game
-				}
-			};
-			game.white.user.money -= game.bet;
-			game.black.user.money -= game.bet;
-			game.white.user.message = undefined;
-			game.black.user.message = undefined;
-			gamesInProgress.push(game);
-			io.in(roomId).emit('setGame', game);
+			if (canUserPlay(userResults[0], data.board) && canUserPlay(userResults[1], data.board)) {
+				const game = {
+					roomId,
+					boardId: data.board.id,
+					bet: data.board.bet,
+					tip,
+					currentAmountBet: 2 * data.board.bet,
+					multiplier: 1,
+					lastDoubledBet: 'none',
+					doublers: [],
+					lastRolled: 'none',
+					turn: data.turn || (Math.round(generator.random()) === 0 ? 'white' : 'black'),
+					limit: data.board.time,
+					lastMove: Date.now(),
+					dice: [],
+					originalDice: [],
+					history: [],
+					white: {
+						user: safeUser(userResults[0]),
+						socketId: data.white.socket.id,
+						position: [0, 0, 0, 0, 0, 0, 5, 0, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0], // real game
+						// position: [0, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1], // test: black is almost won
+						// position: [0, 0, 0, 0, 0, 0, 5, 0, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2], // test: white is blocked
+						// position: [0, 0, 0, 0, 0, 0, 5, 0, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2], // test: two on the bar
+						// position: [0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // test: huge stack
+						// position: [13, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // test: end game
+					},
+					black: {
+						user: safeUser(userResults[1]),
+						socketId: data.black.socket.id,
+						position: [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 3, 0, 5, 0, 0, 0, 0, 0, 0], // real game
+						// position: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 3, 3, 2, 2, 3, 0, 0], // test: black is almost won
+						// position: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 2, 2, 2, 2, 2, 2, 0], // test: white is blocked
+						// position: [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 3, 0, 5, 0, 0, 0, 0, 0, 0], // test: two on the bar
+						// position: [0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // test: huge stack
+						// position: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 13], // test: end game
+					}
+				};
+				game.white.user.money -= game.bet;
+				game.black.user.money -= game.bet;
+				game.white.user.message = undefined;
+				game.black.user.message = undefined;
+				deferred.resolve(game);
+			} else {
+				deferred.reject({
+					error: messages.NOT_ENOUGH_COINS
+				});
+			}
 		}
 	});
+
+	return deferred.promise;
 }
 
-// function getNumberOfWaitingUsers() {
-// 	return waitingUsers.length;
-// }
 
 function currentPlayerIsWinner(game) {
 	const homeIndex = game.turn === 'white' ? 0 : 25;
@@ -965,6 +816,10 @@ function updateAndSend(game, update) {
 	Object.assign(game, update);
 	io.in(game.roomId).emit('setGame', game);
 	console.log('game', game);
+}
+
+function canUserPlay(user, board) {
+	return user.money >= board.bet;
 }
 
 function updateUsers(game) {
