@@ -167,7 +167,7 @@ io.on('connection', (socket) => {
 	});
 	socket.on('signup', (credentials) => {
 		console.log('RECEIVED signup from %s', socket.id);
-		auth.signup(credentials).then(send('setUser'), send('userError'));
+		auth.signup(credentials).then(sendUserDataDisconnectIfNecessary(socket), send('userError'));
 	});
 	socket.on('facebook', (data) => {
 		console.log('RECEIVED facebook from %s', socket.id);
@@ -201,7 +201,7 @@ io.on('connection', (socket) => {
 									facebookId: meBod.id,
 									picture: meBod.picture.data.url,
 									password: '' + generator.random(),
-								}).then(send('setUser'));
+								}).then(sendUserDataDisconnectIfNecessary(socket));
 							} else {
 								// User exists
 								auth.login({
