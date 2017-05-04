@@ -31,7 +31,7 @@ const connectionString = process.env.OPENSHIFT_MONGODB_DB_URL ?
 	process.env.OPENSHIFT_MONGODB_DB_URL :
 	'localhost:27017/libackgammon';
 
-const dns = process.env.OPENSHIFT_GEAR_DNS ? 'https://' + process.env.OPENSHIFT_GEAR_DNS : 'http://localhost:3001'
+const dns = process.env.OPENSHIFT_GEAR_DNS ? '/api' : 'http://localhost:3001';
 
 mongoose.Promise = require('q').Promise;
 
