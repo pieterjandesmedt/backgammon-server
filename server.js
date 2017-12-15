@@ -683,16 +683,18 @@ function checkForReadyGames() {
 		const waitingUsersForBoard = waitingUsers.filter(u => u.boardId === board.id);
 		console.log('waitingUsersForBoard %s', board.title, waitingUsersForBoard);
 		if (waitingUsersForBoard.length > 1) {
-			if (io.sockets.connected[waitingUsersForBoard[0].socketId] && io.sockets.connected[waitingUsersForBoard[1].socketId]) {
+			const userSocket1 = userSockets[waitingUsersForBoard[0].userId];
+			const userSocket2 = userSockets[waitingUsersForBoard[1].userId];
+			if (io.sockets.connected[userSocket1] && io.sockets.connected[userSocket2]) {
 				const game = {
 					board: Object.assign({}, board),
 					white: {
 						userId: waitingUsersForBoard[0].userId,
-						socket: io.sockets.connected[waitingUsersForBoard[0].socketId],
+						socket: io.sockets.connected[userSocket1],
 					},
 					black: {
 						userId: waitingUsersForBoard[1].userId,
-						socket: io.sockets.connected[waitingUsersForBoard[1].socketId],
+						socket: io.sockets.connected[userSocket2],
 					}
 				};
 				createGame(game).then((newGame) => {

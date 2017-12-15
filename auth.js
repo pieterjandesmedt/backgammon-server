@@ -43,7 +43,7 @@ function signup(credentials) {
 						username: credentials.username,
 						password: hash,
 						picture: credentials.picture || '',
-						money: 10,
+						money: 3,
 						elo: [1500],
 						xp: 0,
 					});
