@@ -28,8 +28,8 @@ const ONE_HOUR = 60 * ONE_MINUTE;
 // const ONE_WEEK = 7 * ONE_DAY;
 
 // default to a 'localhost' configuration:
-const connectionString = process.env.OPENSHIFT_MONGODB_DB_URL ?
-	process.env.OPENSHIFT_MONGODB_DB_URL :
+const connectionString = process.env.MONGODB_URI ?
+	process.env.MONGODB_URI :
 	'localhost:27017/libackgammon';
 
 mongoose.Promise = require('q').Promise;
@@ -91,14 +91,13 @@ if (process.env.NODE_ENV === 'development') {
 const waitingUsers = [];
 let gamesInProgress = [];
 
-const serverPort = process.env.OPENSHIFT_NODEJS_PORT || 3001;
-const serverIpAddress = process.env.OPENSHIFT_NODEJS_IP || '127.0.0.1';
+const serverPort = process.env.PORT || 3001;
 
-server.listen(serverPort, serverIpAddress, function (err) {
+server.listen(serverPort, function (err) {
 	if (err) {
 		console.error(err);
 	} else {
-		console.log('Listening on ' + serverIpAddress + ', port ' + serverPort);
+		console.log(`Listening on port ${serverPort}`);
 	}
 });
 
